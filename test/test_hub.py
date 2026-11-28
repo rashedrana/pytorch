@@ -186,11 +186,48 @@ class TestHub(TestCase):
                 )
             self.assertFalse(os.path.exists(os.path.join(tmp_dir, "abs.pth")))
 
+            # The model_dir itself is not a valid target either.
+            with self.assertRaisesRegex(ValueError, "outside of model_dir"):
+                torch.hub.load_state_dict_from_url(
+                    url,
+                    model_dir=model_dir,
+                    file_name=".",
+                    progress=False,
+                )
+
             # A plain file name inside model_dir still works.
             state_dict = torch.hub.load_state_dict_from_url(
-                url, model_dir=model_dir, file_name="model.pth", progress=False
+                url,
+                model_dir=model_dir,
+                file_name="model.pth",
+                progress=False,
+                weights_only=True,
             )
             self.assertEqual(state_dict["w"], torch.ones(2))
+
+    def test_load_state_dict_from_url_symlinked_checkpoint_still_loads(self):
+        # A cached file inside model_dir that is a symlink to a file
+        # elsewhere must keep loading, as it did before the file_name
+        # validation: only the directory is resolved, not the final
+        # component.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            model_dir = os.path.join(tmp_dir, "checkpoints")
+            os.makedirs(model_dir)
+            outside = os.path.join(tmp_dir, "outside.pth")
+            torch.save({"w": torch.ones(2) * 3}, outside)
+            try:
+                os.symlink(outside, os.path.join(model_dir, "linked.pth"))
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks not available")
+            src = os.path.join(tmp_dir, "src.pth")
+            torch.save({"w": torch.ones(2)}, src)
+            state_dict = torch.hub.load_state_dict_from_url(
+                pathlib.Path(src).as_uri(),
+                model_dir=model_dir,
+                file_name="linked.pth",
+                progress=False,
+            )
+            self.assertEqual(state_dict["w"], torch.ones(2) * 3)
 
     @retry(Exception, tries=3)
     def test_load_legacy_zip_checkpoint(self):
