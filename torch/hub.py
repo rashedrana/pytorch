@@ -890,13 +890,16 @@ def load_state_dict_from_url(
     cached_file = os.path.join(model_dir, filename)
     # A caller-supplied file_name must not be able to place the downloaded
     # file outside of model_dir (e.g. "../escaped.pth" or an absolute path).
+    # Only model_dir itself is resolved; the final component is checked
+    # lexically, so a cached file that is a symlink keeps working as before.
     root = Path(model_dir).resolve()
-    target = (root / filename).resolve()
+    target = Path(os.path.normpath(root / filename))
     if not target.is_relative_to(root) or target == root:
         raise ValueError(
             f"file_name '{filename}' would place the downloaded file "
             f"outside of model_dir '{model_dir}'"
         )
+    cached_file = str(target)
     if not os.path.exists(cached_file):
         sys.stdout.write(f'Downloading: "{url}" to {cached_file}\n')
         hash_prefix = None
